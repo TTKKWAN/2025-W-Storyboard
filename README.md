@@ -51,6 +51,7 @@ pip install -r requirement.txt
 <p align="center">
   <img src="assets/demo.png" alt="학습 파이프라인 예시" width="720">
 </p>
+
 - 우선적으로 table Diffusion 모델에 Textueal Embedding을 적용합니다. 특정 구도나 스타일을 하나의 희귀 토큰에 묶어 모델이 사용자가 지정한 정보를 중점적으로 학습하도록 유도하는 기법이며 본 프로젝트에서는 CLIP의 임베딩 벡터에 Shot을 의미하는 3개의 희귀 토큰 <cu_trg>, <ms_trg>, <fs_trg>을 추가하여 구도 정보를 반영하는 것을 목표로 하였습니다. 이후 storyboard 데이터셋으로 Finetuning 하여 shot과 목표 그림체를 학습합니다.
 - `train.sh` 주요 하이퍼파라미터(데이터 경로, 배치, rank 등)를 지정하고 `accelerate` 실행 구성을 로깅하는 스크립트를 실행합니다
 
