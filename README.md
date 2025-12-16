@@ -15,78 +15,43 @@
 | `Dataset_collect_title_method/` | 원본 스틸컷 메타데이터 정리 및 캡션/타이틀 매칭 스크립트 |
 | `Data_preprocessing_method/`, `Data_preprocessing_Line/` | 말풍선 제거, 1024 정사각 변환, SDXL ControlNet 라인아트 생성 등 데이터 정제 단계 |
 | `Dataset_clustering_method/` | CLIP 임베딩 기반 장면/샷 타입 클러스터링 코드 및 사전 계산된 가중치 |
-| `Dataset_fin/` | (GitHub에는 제외) 모델 학습에 사용한 최종 이미지/JSONL. 실제 운용 시 로컬 동일 경로에 배치 |
+| `Dataset_fin/` | 모델 학습에 사용한 최종 이미지/JSONL. 실제 운용 시 로컬 동일 경로에 배치 |
 | `train_trigger02.py`, `shot_trigger_train.sh` | LoRA 및 커스텀 Trigger Token 학습 스크립트와 실행 셸 |
 | `inference_trigger.py`, `inference_trigger2.sh` | 학습된 토큰과 LoRA를 사용해 이미지를 합성하는 추론 파이프라인 |
 | `validation/` | 검증용 JSONL, 배치 생성 스크립트, 멀티 GPU 실행 셸 포함 |
-| `model_sd/`, `model_output/` | (GitHub에는 제외) 베이스 Stable Diffusion 체크포인트와 생성 결과 저장소 |
+| `model_sd/`, `model_output/` | 베이스 Stable Diffusion 체크포인트와 생성 결과 저장소 |
 
-> ⚠️ `model_sd/`, `model_output/`, `Dataset_fin/` 등 대용량 파일은 `.gitignore`에 등록되어 있으므로 공개 저장소에는 커밋되지 않습니다. 필요한 경우 동일한 디렉터리명으로 로컬에 배치한 뒤 스크립트를 실행하세요.
+> ⚠️ `model_sd/`, `model_output/`, `Dataset_fin/` 등 대용량 파일은 `.gitignore`에 등록되어 있으므로 공개 저장소에는 커밋되지 않습니다. 필요한 경우 동일한 디렉터리명으로 로컬에 배치한 뒤 스크립트 실행해야합니다
 
-## 3. 방법론 요약
+## 3. 전처리
 ### 3.1 데이터 수집 및 정규화
 1. `Dataset_collect_title_method/collect_title_matches.py`로 원본 JSONL을 통합하고, 중복 캡션/누락 항목을 정리합니다.
 2. `Data_preprocessing_method/` 스크립트와 `Data_preprocessing_Line/01_preprocessing.py`를 사용해 1024x1024 정사각 이미지와 라인아트 버전을 생성합니다. 이때 ControlNet(Lineart) + SDXL 파이프라인을 활용해 노이즈를 최소화합니다.
 3. 필요 시 `00_Canny.ipynb`로 거친 에지/버블 제거 결과를 확인합니다.
 
 ### 3.2 샷 분류 및 데이터 필터링
-- `Dataset_clustering_method/run_clip_clustering.py` + 사전 학습된 CLIP 가중치(`ViT-B-32-openai.pt`, `clip-vit-b-32.pt`)를 이용해 장면 별 샷 타입을 자동 분류하고, 균형 잡힌 학습 세트를 만듭니다.
-- 결과는 `Dataset_fin/metadata.jsonl`로 요약되며, 학습 스크립트에서 그대로 사용합니다.
+![Demo Image](assets/clustering.png)
+- `Dataset_clustering_method/run_clip_clustering.py` + 사전 학습된 CLIP 가중치(`ViT-B-32-openai.pt`, `clip-vit-b-32.pt`)를 이용해 장면 별 샷 타입을 분류합니다
+- Earth Mover’s Distance (Wasserstein-2) 기법을 이용해서 top-k에 해당하는 그림체를 보며 육안으로 봤을 때 이질적인 그림체가 나오는경우 그 직전까지 clustering을 진행했습니다.
+- 결과는 `Dataset_fin/metadata.jsonl`로 출력됩니다.
 
-### 3.3 Trigger Token + LoRA 학습
-- `train_trigger02.py`는 diffusers 기반 LoRA 학습 스크립트이며 `<fs_trg>`, `<ms_trg>` 등 커스텀 토큰을 토크나이저에 추가하고 텍스트 인코더를 동시에 미세조정합니다.
-- `shot_trigger_train.sh`에서 주요 하이퍼파라미터(데이터 경로, 배치, rank 등)를 지정하고 `accelerate` 실행 구성을 로깅합니다.
+### 3.3 번역 파이프라인
+- `Data_preprocessing_method/02_translate.py` 스크립트를 통해 한국어 캡션을 영어로 일괄 번역합니다.
+- 스크립트 실행 시 입력 텍스트 폴더(`--input-dir`)와 출력 폴더(`--output-dir`)를 지정하면 각 파일을 순회하며 `translated_*.txt` 형태로 결과를 저장합니다.
 
-### 3.4 추론 및 검증
-- `inference_trigger.py`는 학습된 LoRA + 텍스트 인코더 가중치를 로드해 사용자 프롬프트에 트리거 단어를 삽입한 뒤 결과 이미지를 저장합니다.
-- `validation/validation.sh`는 여러 GPU에 샤딩하여 검증용 JSONL(`validation.jsonl`)에 있는 프롬프트를 일괄 생성합니다. 필요 시 `validation/base_valid.sh`로 LoRA 없이 베이스라인을 비교합니다.
+## 4. Train
+![Demo Image](assets/demo.png)
+- 우선적으로 table Diffusion 모델에 Textueal Embedding을 적용합니다. 특정 구도나 스타일을 하나의 희귀 토큰에 묶어 모델이 사용자가 지정한 정보를 중점적으로 학습하도록 유도하는 기법이며 본 프로젝트에서는 CLIP의 임베딩 벡터에 Shot을 의미하는 3개의 희귀 토큰 <cu_trg>, <ms_trg>, <fs_trg>을 추가하여 구도 정보를 반영하는 것을 목표로 하였습니다. 이후 storyboard 데이터셋으로 Finetuning 하여 shot과 목표 그림체를 학습합니다.
+- `train.sh` 주요 하이퍼파라미터(데이터 경로, 배치, rank 등)를 지정하고 `accelerate` 실행 구성을 로깅하는 스크립트를 실행합니다
 
-## 4. 환경 설정
-1. Python 3.10+ 환경을 권장합니다.
-2. 가상환경 생성 및 의존성 설치:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # Windows라면 .venv\Scripts\activate
-   pip install --upgrade pip
-   pip install -r requirements.txt
-   ```
-3. NVIDIA GPU + CUDA 11.8 이상, VRAM 24GB 이상의 환경을 권장합니다. `xformers` 설치는 GPU/드라이버에 따라 추가 설정이 필요할 수 있습니다.
+## 5. Inference
+- `inference.sh`는 학습된 LoRA + 텍스트 인코더 가중치를 로드해 사용자 프롬프트에 트리거 단어를 삽입한 뒤 결과 이미지를 저장하는 스크립트
 
-## 5. 실행 가이드
-### 5.1 데이터 전처리
+## 6. Validation
+- `validation/validation.sh`는 멀티 GPU 검증 생성하는 부분이며 학습된 LoRA 적용 추론 및 결과를 저장하는 스크립트
+- `validation/vqa.ipynb`는 생성 이미지에 대한 Visual Question Answering 평가를 수행해 품질을 정량적으로 분석할 수 있는 노트북입니다. 검증 산출물을 불러와 VQA 점수나 예제를 확인할 때 활용하세요.
+
+## 7. 환경 설정
 ```bash
-cd Data_preprocessing_method
-python 01_preprocess_tags.py --input metadata_raw.jsonl --output metadata_clean.jsonl
-python 02_translate.py --input metadata_clean.jsonl --output metadata_translated.jsonl
-python 03_finalize_dataset.py --image-root /path/to/images --metadata metadata_translated.jsonl --out ../Dataset_fin
+pip install -r requirement.txt
 ```
-필요한 ControlNet 라인아트 생성은 `Data_preprocessing_Line/01_preprocessing.py` 내 상단 경로를 실제 데이터 경로로 수정 후 실행합니다.
-
-### 5.2 트리거 LoRA 학습
-```bash
-bash shot_trigger_train.sh \
-  --pretrained_model_name_or_path ./model_sd \
-  --train_data_dir ./Dataset_fin \
-  --output_dir ./model_sd_weight/train_fs
-```
-`shot_trigger_train.sh` 내부에서 `accelerate launch train_trigger02.py`가 호출되며, `NEW_TOKENS`, `TOKEN_INITIALIZER` 설정을 그대로 사용합니다.
-
-### 5.3 검증 및 추론
-- 검증: `validation/validation.sh`의 경로(GPU, 모델, 체크포인트)를 로컬 환경에 맞게 수정한 뒤 실행합니다.
-  ```bash
-  cd validation
-  bash validation.sh
-  ```
-- 단일 프롬프트 추론:
-  ```bash
-  python inference_trigger.py \
-    --base-model ./model_sd \
-    --checkpoint ./model_sd_weight/train_fs \
-    --prompt "<fs_trg>, full shot, Eye level, outdoor" \
-    --output ./model_output/sample.png
-  ```
-
-## 6. 추가 팁
-- 대용량 데이터나 가중치는 Git LFS 대신 로컬/사내 스토리지에 두고, README에 다운로드 경로만 안내하는 것을 권장합니다.
-- `wandb`를 사용할 경우 `WANDB_API_KEY` 환경 변수를 설정하고 `train_trigger02.py --report_to wandb` 옵션을 켜면 실험 기록을 자동화할 수 있습니다.
-- `validation` 결과는 `validation/output/` 아래에 체크포인트별로 저장되며 `.gitignore`에 의해 커밋되지 않습니다.
