@@ -1,0 +1,43 @@
+# Python cache / build artifacts
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+*.pyo
+*.egg-info/
+*.log
+
+# Virtual environments and local settings
+.venv/
+venv/
+.env
+.env.*
+*.env
+
+# Node / frontend dependencies
+node_modules/
+
+# Checkpoints, weights, and large binaries
+model_sd/
+model_output/
+Dataset_fin/
+**/outputs/
+**/output/
+**/logs/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+
+# Training metadata
+runs/
+wandb/
+*.ckpt.meta
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS / editor files
+.DS_Store
+Thumbs.db
